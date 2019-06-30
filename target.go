@@ -136,7 +136,6 @@ func (t *Target) ingest(in io.Reader) (err error) {
 			t.mu.Unlock()
 		}
 	}
-	return
 }
 
 func (t *Target) calculateMagnitude(q1, q2 float64) {
