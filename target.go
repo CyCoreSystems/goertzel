@@ -52,20 +52,11 @@ type Target struct {
 	//  Working Variables
 	//
 
-	q1 float64
-	q2 float64
-
 	realM float64
 	imagM float64
 
 	// Magnitude2 is the square of the magnitude of the last-processed block
 	Magnitude2 float64
-
-	// lastChange records the timestamp of the last change in state
-	lastChange time.Time
-
-	// state indicates whether the target frequency is currently detected
-	state bool
 
 	// blockReader variables for managing output of block summaries
 	blockReaderPresent bool
@@ -79,11 +70,17 @@ type Target struct {
 
 // SetBlockSize overrides automatic calculation of the optimal N (block size) value and uses the one provided instead
 func (t *Target) SetBlockSize(n int) {
+	t.mu.Lock()
 	t.blockSize = n
+	t.mu.Unlock()
+
 	t.generateConstants()
 }
 
 func (t *Target) generateConstants() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	N := float64(t.blockSize)
 	rate := t.sampleRate
 
@@ -102,15 +99,13 @@ func (t *Target) Read(in io.Reader) error {
 func (t *Target) ingest(in io.Reader) (err error) {
 	var i int
 	var sample int16
-	var q float64
+	var q, q1, q2 float64
 
 	defer t.Stop()
 
 	r := bufio.NewReader(in)
 
-	t.reset()
-
-	for t.stopped == false {
+	for {
 		var buf = make([]byte, 2)
 		buf[0], _ = r.ReadByte()
 		buf[1], err = r.ReadByte()
@@ -121,31 +116,42 @@ func (t *Target) ingest(in io.Reader) (err error) {
 		sample = int16(binary.LittleEndian.Uint16(buf))
 
 		i++
-		q = t.coeff*t.q1 - t.q2 + float64(sample)
-		t.q2 = t.q1
-		t.q1 = q
+		q = t.coeff*q1 - q2 + float64(sample)
+
+		q2 = q1
+		q1 = q
 
 		if i == t.blockSize {
-			t.calculateMagnitude()
+			t.calculateMagnitude(q1, q2)
 			t.sendBlockSummary()
-			t.reset()
 			i = 0
+			q1 = 0
+			q2 = 0
+
+			t.mu.Lock()
+			if t.stopped {
+				t.mu.Unlock()
+				return
+			}
+			t.mu.Unlock()
 		}
 	}
 	return
 }
 
-func (t *Target) calculateMagnitude() {
+func (t *Target) calculateMagnitude(q1, q2 float64) {
 	if t.UseOptimized {
-		t.Magnitude2 = t.q1*t.q1 + t.q2*t.q2 - t.q1*t.q2*t.coeff
+		t.Magnitude2 = q1*q1 + q2*q2 - q1*q2*t.coeff
 		return
 	}
 
 	var scalingFactor = float64(t.blockSize) / 2.0
 
-	t.realM = (t.q1 - t.q2*t.cos) / scalingFactor
-	t.imagM = (t.q2 * t.sin) / scalingFactor
+	t.mu.Lock()
+	t.realM = (q1 - q2*t.cos) / scalingFactor
+	t.imagM = (q2 * t.sin) / scalingFactor
 	t.Magnitude2 = t.realM*t.realM + t.imagM*t.imagM
+	t.mu.Unlock()
 }
 
 func (t *Target) sendBlockSummary() {
@@ -169,11 +175,6 @@ func (t *Target) blockSummary() *BlockSummary {
 	}
 }
 
-func (t *Target) reset() {
-	t.q1 = 0
-	t.q2 = 0
-}
-
 // Stop terminates the Target processing.  It will close the Events channel and stop processing new data.
 func (t *Target) Stop() {
 	t.blockReaderMu.Lock()
@@ -183,9 +184,10 @@ func (t *Target) Stop() {
 		t.blockReaderPresent = false
 	}
 	t.blockReaderMu.Unlock()
-	t.reset()
 
+	t.mu.Lock()
 	t.stopped = true
+	t.mu.Unlock()
 }
 
 // Blocks returns a channel over which the summary of each resulting block from

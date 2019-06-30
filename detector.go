@@ -3,14 +3,14 @@ package goertzel
 import (
 	"context"
 	"io"
+	"log"
 	"math"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
 func detectTone(pCtx context.Context, freq, sampleRate float64, minDuration time.Duration, in io.Reader) (sufficient bool, err error) {
 	var findingAbsence bool
+
 	if freq < 0 {
 		findingAbsence = true
 		freq = -freq
@@ -23,11 +23,12 @@ func detectTone(pCtx context.Context, freq, sampleRate float64, minDuration time
 	defer cancel()
 
 	go func() {
-		if err = t.Read(in); err != nil {
-			if err == io.EOF {
+		defer cancel()
+		if rErr := t.Read(in); rErr != nil {
+			if rErr == io.EOF {
 				return
 			}
-			err = errors.Wrap(err, "error reading from input")
+			log.Println("detectTone: failure reading input:", err)
 		}
 	}()
 
@@ -59,7 +60,6 @@ func detectTone(pCtx context.Context, freq, sampleRate float64, minDuration time
 		}
 	}
 	return
-
 }
 
 // DetectTone waits for the given tone to be found, returning with `true` when it is.  `false` will be returned if canceled by context or by a stream error/completion.

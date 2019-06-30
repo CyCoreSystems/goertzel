@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-var defaultMinimumDuration = 50 // 50ms
-
 // BlockBufferSize is the number of blocks to buffer for slow readers, when sending BlockSummaries from Targets
 var BlockBufferSize = 50
 

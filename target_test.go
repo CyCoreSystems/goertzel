@@ -3,6 +3,7 @@ package goertzel
 import (
 	"io"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,13 +13,16 @@ import (
 func TestTargetBlockSummaryReading(t *testing.T) {
 	mag, found := testBlockSummaryReading(t, "1400hz3s.slin", 1400.0)
 	assert.True(t, found, "1400Hz tone should be found")
+	if mag < ToneThreshold {
+		t.Errorf("magnitude of 1400Hz tone detection (%f) too low", mag)
+	}
 
-	mag, found = testBlockSummaryReading(t, "1400hz3s.slin", 2300.0)
+	mag, _ = testBlockSummaryReading(t, "1400hz3s.slin", 2300.0)
 	if mag > ToneThreshold {
 		t.Errorf("magnitude of 2300Hz tone detection (%f) too high", mag)
 	}
 
-	mag, found = testBlockSummaryReading(t, "2300hz3s.slin", 2300.0)
+	mag, _ = testBlockSummaryReading(t, "2300hz3s.slin", 2300.0)
 	if mag < ToneThreshold {
 		t.Errorf("magnitude of 2300Hz tone detection (%f) too low", mag)
 	}
@@ -47,14 +51,31 @@ func TestTargetBlockSummaryReading(t *testing.T) {
 	assert.False(t, found, "2300Hz tone should NOT be found from 2350Hz")
 }
 
-func testBlockSummaryReading(t *testing.T, fn string, freq float64) (float64, bool) {
-	var highestMag float64
-	var found bool
+func TestTargetBlockLock(t *testing.T) {
+	tgt := NewTarget(100.0, 8000.0, 50*time.Millisecond)
+	testCh := tgt.Blocks()
+	testCh2 := tgt.Blocks()
+	assert.NotNil(t, testCh, "first channel should exist")
+	assert.Nil(t, testCh2, "second channel should not exist")
+}
+
+func TestTargetOverrideBlockSize(t *testing.T) {
+	tgt := NewTarget(100.0, 8000.0, 50*time.Millisecond)
+	origBlockSize := tgt.blockSize
+	origCos := tgt.cos
+	tgt.SetBlockSize(500)
+	assert.NotEqual(t, origBlockSize, tgt.blockSize, "new block size and old block size should differ")
+	assert.NotEqual(t, origCos, tgt.cos, "new cosine and old cosine should differ")
+}
+
+func testBlockSummaryReading(t *testing.T, fn string, freq float64) (highestMag float64, found bool) {
+	wg := new(sync.WaitGroup)
 
 	tgt := NewTarget(freq, RateTelephony, 50*time.Millisecond)
 	tgt.UseOptimized = false
 	defer tgt.Stop()
 
+	wg.Add(1)
 	go func() {
 		var i int
 		for b := range tgt.Blocks() {
@@ -68,6 +89,7 @@ func testBlockSummaryReading(t *testing.T, fn string, freq float64) (float64, bo
 				found = true
 			}
 		}
+		wg.Done()
 		//t.Logf("processed %d blocks from %s for %fHz detection", i, fn, freq)
 	}()
 
@@ -82,6 +104,7 @@ func testBlockSummaryReading(t *testing.T, fn string, freq float64) (float64, bo
 		}
 	}
 	tgt.Stop()
+	wg.Wait()
 
-	return highestMag, found
+	return
 }

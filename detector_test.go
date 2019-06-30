@@ -2,7 +2,6 @@ package goertzel
 
 import (
 	"context"
-	"io"
 	"os"
 	"testing"
 	"time"
@@ -18,11 +17,11 @@ func TestDetectTone(t *testing.T) {
 
 	found, err = testDetectToneFromFile("1400hz3s.slin", 1400.0, 8000.0, 5*time.Second)
 	assert.False(t, found, "1400Hz tone should be NOT found")
-	assert.Equal(t, io.EOF, err, "EOF error should be returned")
+	assert.Nil(t, err, "no error should be returned")
 
 	found, err = testDetectToneFromFile("1400hz3s.slin", 2300.0, 8000.0, 50*time.Millisecond)
 	assert.False(t, found, "2300Hz tone should NOT be found")
-	assert.Equal(t, io.EOF, err, "EOF error should be returned")
+	assert.Nil(t, err, "no error should be returned")
 
 	found, err = testDetectToneFromFile("1400hz3s.slin", -2300.0, 8000.0, 50*time.Millisecond)
 	assert.True(t, found, "2300Hz tone absence should be found")
@@ -34,7 +33,7 @@ func TestDetectTone(t *testing.T) {
 
 	found, err = testDetectToneFromFile("combo15s.slin", 500.0, 8000.0, time.Second)
 	assert.False(t, found, "500Hz tone should NOT be found")
-	assert.Equal(t, io.EOF, err, "EOF should be returned")
+	assert.Nil(t, err, "no should be returned")
 }
 
 func testDetectToneFromFile(fn string, freq, rate float64, minDur time.Duration) (bool, error) {
